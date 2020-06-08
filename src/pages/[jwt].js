@@ -6,6 +6,7 @@ import { verify } from 'jsonwebtoken';
 import { Heading } from '@codeday/topo/Atom/Text';
 import { default as TextInput } from '@codeday/topo/Atom/Input/Text';
 import { default as TextArea } from '@codeday/topo/Atom/Input/Textarea';
+import Box from '@codeday/topo/Atom/Box';
 import FormControl, { Label as FormLabel } from '@codeday/topo/Molecule/FormControl';
 import Button from '@codeday/topo/Atom/Button';
 import Content from '@codeday/topo/Molecule/Content';
@@ -32,7 +33,15 @@ export const getServerSideProps = async ({ params: { jwt }, query, res }) => {
     return { props: { error: true }};
   }
 
-  const { base: baseId, table: tableId, record: recordId, title, fields } = verify(jwt, serverRuntimeConfig.appSecret);
+  const {
+    base: baseId,
+    table: tableId,
+    record: recordId,
+    title, titleString,
+    confirmField,
+    confirmState,
+    fields
+  } = verify(jwt, serverRuntimeConfig.appSecret);
 
   // Load the Airtable record
   const base = new Airtable({ apiKey: serverRuntimeConfig.airtableKey }).base(baseId);
@@ -46,29 +55,71 @@ export const getServerSideProps = async ({ params: { jwt }, query, res }) => {
 
   return {
     props: {
-      title: record.fields[title],
-      fields: mapFields(fields, record.fields),
+      titleString: titleString || null,
+      confirmField: confirmField || null,
+      confirmState: confirmState || null,
+      currentState: confirmField ? record.fields[confirmField] === (confirmState || true) : false,
+      title: title ? (record.fields[title] || null) : null,
+      fields: fields ? mapFields(fields, record.fields) : [],
       jwt,
     }
   }
 };
 
-export default function Home({ error, title, fields, jwt }) {
+export default function Home({ error, title, titleString, fields, confirmField, currentState, jwt }) {
   const [edits, setEdits] = useState(fields.reduce((accum, field) => ({ ...accum, [field.name]: field.value }), {}));
   const [saving, setSaving] = useState(false);
+  const [confirmed, setConfirmed] = useState(currentState);
 
   if (error) return (
     <Page slug="/" title="Not Found">
       <Content>
-        <Heading as="h2" fontSize="5xl" textAlign="center">That page wasn't found.</Heading>
+        <Heading as="h2" fontSize="4xl" textAlign="center">That page wasn't found.</Heading>
       </Content>
     </Page>
   );
 
-	return (
-		<Page slug="/" title={`Editing ${title}`}>
+  if (confirmField) return (
+		<Page slug="/" title={titleString || `Confirm ${title || 'Entry'}`}>
 			<Content>
-      <Heading as="h2" fontSize="5xl" textAlign="center">Editing {title}</Heading>
+        <Heading as="h2" fontSize="4xl" textAlign="center">{titleString || `Confirm ${title || 'Entry'}?`}</Heading>
+        {confirmed ? (
+          <Box textAlign="center">
+            <p>You are confirmed! Thank you!</p>
+          </Box>
+        ) : (
+          <Box textAlign="center">
+            <Button
+              variantColor="green"
+              disabled={saving}
+              isLoading={saving}
+              onClick={async () => {
+                setSaving(true);
+                try {
+                  const result = await fetch('/api/confirm', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ jwt }),
+                  });
+                  setConfirmed(true);
+                } catch (err) {
+                  console.error(err);
+                }
+                setSaving(false);
+              }}
+            >
+              Confirm
+            </Button>
+          </Box>
+        )}
+			</Content>
+		</Page>
+  )
+
+	return (
+		<Page slug="/" title={titleString || `Editing ${title || 'Entry'}`}>
+			<Content>
+      <Heading as="h2" fontSize="4xl" textAlign="center">{titleString || `Editing ${title || 'Entry'}`}</Heading>
       {fields.map((field) => {
         const EditorElem = {
           textarea: TextArea,
